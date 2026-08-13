@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     project_name: str = "Enterprise GraphRAG Intelligence Engine"
     environment: str = "development"
 
+    # LLM API Key
+    groq_api_key: str = ""
+
     # Database URLs & Credentials
     postgres_url: str
     qdrant_url: str

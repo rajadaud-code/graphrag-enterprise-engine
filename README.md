@@ -9,11 +9,12 @@ A high-performance, low-latency, zero-cost Retrieval-Augmented Generation (Graph
 The **Enterprise GraphRAG Intelligence Engine** combines vector retrieval with graph database structures into a stateful reasoning pipeline:
 
 - **FastAPI**: Non-blocking asynchronous REST API framework.
-- **Qdrant**: High-performance vector database for semantic chunk retrieval.
-- **Neo4j**: Relational Knowledge Graph database for multi-hop graph queries.
+- **Qdrant**: High-performance vector database for 384-dimensional semantic chunk retrieval (`all-MiniLM-L6-v2`).
+- **Neo4j**: Relational Knowledge Graph database storing entities and Cypher-queriable relationships.
 - **PostgreSQL**: Relational storage for users, sessions, and task logs via SQLAlchemy 2.0 Async.
 - **Redis**: Asynchronous task broker, result backend, and semantic query cache.
-- **Celery**: Background async document parsing, embedding, and graph extraction worker pool.
+- **Celery**: Background async document parsing, embedding, and LLM graph extraction worker pool.
+- **Groq API**: High-speed LLM inference engine (`llama-3.3-70b-versatile`).
 - **LangGraph**: Stateful agentic search & synthesis pipeline.
 
 ---
@@ -26,9 +27,10 @@ graphrag-enterprise-engine/
 ├── gemini.md                           # AI Agent Context & Instruction Manual
 ├── README.md                           # Overall Project Setup & User Manual
 ├── PROGRESS.md                         # Current Implementation Progress Tracker
+├── pyproject.toml                      # Package metadata configuration
+├── requirements.txt                    # Dependencies
 ├── .gitignore                          # Git Ignore Rules
 ├── docker-compose.yml                  # Local Infrastructure Setup
-├── requirements.txt                    # Dependencies
 │
 └── app/
     ├── main.py                         # FastAPI Entrypoint
@@ -36,14 +38,27 @@ graphrag-enterprise-engine/
     │   └── v1/
     │       ├── router.py               # Central Router
     │       └── endpoints/
-    │           └── health.py           # Health Checks Endpoint
+    │           ├── health.py           # Health Checks Endpoint
+    │           ├── ingest.py           # Document Ingestion Endpoint
+    │           └── test_db.py          # Data Verification Endpoint
     ├── core/
     │   └── config.py                   # Pydantic Settings Configuration
-    └── db/
-        ├── postgres.py                 # Async PostgreSQL Session
-        ├── qdrant_client.py            # Async Qdrant Connection
-        ├── neo4j_client.py             # Async Neo4j Driver Connection
-        └── redis_client.py             # Async Redis Client
+    ├── db/
+    │   ├── postgres.py                 # Async PostgreSQL Session
+    │   ├── qdrant_client.py            # Async Qdrant Connection
+    │   ├── neo4j_client.py             # Async Neo4j Driver Connection
+    │   └── redis_client.py             # Async Redis Client
+    ├── models/
+    │   └── schemas/
+    │       └── ingest.py               # Ingestion Schemas
+    ├── services/
+    │   ├── embedding_service.py        # HuggingFace Embedding & Qdrant Upsert
+    │   └── graph_extractor.py          # Groq LLM Graph Extractor & Neo4j Ingestion
+    ├── tasks/
+    │   ├── celery_app.py               # Celery App Definition
+    │   └── document_worker.py          # Full Pipeline Celery Worker
+    └── utils/
+        └── text_processing.py          # PDF Parser & Text Chunker
 ```
 
 ---
@@ -87,39 +102,77 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3. Run Application
+### 3. Run FastAPI Application
 
 ```bash
 # Run FastAPI development server with Uvicorn
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### 4. Run Celery Background Worker
+
+```bash
+# Start Celery worker pool
+celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+```
+
 ---
 
-## 🔍 API Endpoints
+## 🧪 Phase 3 Testing & Data Verification
 
-Once the application is running, visit:
-- **Interactive OpenAPI Docs (Swagger UI)**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+Follow these steps to verify vector vectorization in Qdrant and Knowledge Graph extraction in Neo4j:
 
-### Health Check Endpoint
-```http
-GET /api/v1/health
+### Step 1: Upload a PDF Document
+
+Submit a PDF file to the ingestion endpoint:
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/ingest" \
+  -H "accept: application/json" \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@/path/to/sample_document.pdf"
 ```
-Performs non-blocking async status checks across PostgreSQL, Qdrant, Neo4j, and Redis.
 
-**Sample Response (200 OK):**
+**Response (202 Accepted):**
 ```json
 {
-  "status": "all systems operational",
-  "details": {
-    "postgres": "healthy",
-    "qdrant": "healthy",
-    "neo4j": "healthy",
-    "redis": "healthy"
+  "task_id": "8f7e2d19-4a92-4c31-b852-aa91823ef001",
+  "message": "Document 'sample_document.pdf' accepted for background ingestion",
+  "status": "processing"
+}
+```
+
+### Step 2: Verify Population in Qdrant and Neo4j
+
+Call the verification endpoint:
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/test-data"
+```
+
+**Response (200 OK):**
+```json
+{
+  "qdrant": {
+    "collection": "documents",
+    "status": "green",
+    "points_count": 12,
+    "vectors_count": 12
+  },
+  "neo4j": {
+    "nodes_count": 35,
+    "relationships_count": 48
   }
 }
 ```
+
+---
+
+## 🔍 API Documentation Reference
+
+Once the application is running:
+- **Interactive OpenAPI Docs (Swagger UI)**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ---
 

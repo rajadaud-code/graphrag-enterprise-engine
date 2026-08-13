@@ -10,23 +10,31 @@
 - [x] Central API v1 router (`app/api/v1/router.py`)
 - [x] Main FastAPI application entrypoint (`app/main.py`)
 
-## Phase 2: Domain Models & Schemas
+## Phase 2: Asynchronous Background Ingestion Pipeline
+- [x] Ingestion response Pydantic models (`app/models/schemas/ingest.py`)
+- [x] Text extraction & semantic chunking utility (`app/utils/text_processing.py`)
+- [x] Celery app & Redis broker/backend configuration (`app/tasks/celery_app.py`)
+- [x] Asynchronous document parsing worker task (`app/tasks/document_worker.py`)
+- [x] Async non-blocking ingest API endpoint (`app/api/v1/endpoints/ingest.py`)
+- [x] Included ingest router in API v1 (`app/api/v1/router.py`)
+
+## Phase 3: Vector Vectorization & Knowledge Graph Population
+- [x] Hugging Face `all-MiniLM-L6-v2` local embedding generator & Qdrant batch upsert service (`app/services/embedding_service.py`)
+- [x] Groq LLM entity/relationship JSON extractor with `tenacity` retry & Neo4j Cypher ingestion service (`app/services/graph_extractor.py`)
+- [x] Integrated vector vectorization and Knowledge Graph population into Celery background worker (`app/tasks/document_worker.py`)
+- [x] Verification test endpoint `GET /api/v1/test-data` (`app/api/v1/endpoints/test_db.py`)
+- [x] Updated router with test-data endpoints (`app/api/v1/router.py`)
+
+## Phase 4: Domain Models & Database Schemas
 - [ ] PostgreSQL domain models (User, ChatSession, TaskStatus)
 - [ ] Pydantic API contract schemas
 - [ ] Graph entity and extraction schemas
 
-## Phase 3: Background Ingestion & Document Processing Pipeline
-- [ ] Text extraction & semantic chunking utility
-- [ ] Local HuggingFace embedding service
-- [ ] Celery task queue configuration & Redis broker
-- [ ] Document processing worker (chunking, embedding, Qdrant & Neo4j ingestion)
-
-## Phase 4: LangGraph Agentic Search & Reasoning Pipeline
+## Phase 5: LangGraph Agentic Search & Reasoning Pipeline
 - [ ] StateGraph definition & memory state
 - [ ] Qdrant vector search tool & Neo4j Cypher retrieval tool
 - [ ] LLM query router & GraphRAG synthesis agent
 
-## Phase 5: API Endpoints, Caching & Evaluation
-- [ ] Ingest endpoint (`/api/v1/ingest`)
+## Phase 6: API Endpoints, Caching & Evaluation
 - [ ] Chat endpoint (`/api/v1/chat`) with Redis semantic caching
 - [ ] Ragas / DeepEval benchmark suite & golden dataset evaluation
