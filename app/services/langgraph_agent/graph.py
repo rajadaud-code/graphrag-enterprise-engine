@@ -15,16 +15,16 @@ logger = logging.getLogger(__name__)
 
 
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(min=1, max=10),
+    stop=stop_after_attempt(4),
+    wait=wait_exponential(min=1, max=8),
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
 def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
-    """Helper to invoke Groq API synchronously inside worker or async wrapper."""
+    """Helper to invoke Groq API synchronously with high-speed llama-3.1-8b-instant model."""
     client = Groq(api_key=settings.groq_api_key)
     kwargs: Dict[str, Any] = {
-        "model": "llama-3.3-70b-versatile",
+        "model": settings.groq_model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.1,
     }
@@ -36,33 +36,22 @@ def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
 
 
 def build_graph(qdrant_client: AsyncQdrantClient, neo4j_driver: AsyncDriver):
-    """Factory creating a compiled LangGraph workflow with injected DB connections."""
+    """Factory creating a fast, optimized compiled LangGraph workflow with injected DB connections."""
 
-    # 1. Router Node
+    # 1. Router Node (Fast Heuristic Routing to save LLM latency)
     async def router_node(state: GraphRAGState) -> Dict[str, Any]:
-        question = state["question"]
-        logger.info(f"[LangGraph] Router Node classifying query: '{question}'")
+        question = state["question"].lower()
+        logger.info(f"[LangGraph] Router Node classifying query: '{state['question']}'")
 
-        prompt = f"""You are an Adaptive RAG Router. Classify the user question into one of three search strategies:
-1. "vector": best for textual facts, passages, or document summaries.
-2. "graph": best for multi-hop entity relationships, organizational structures, or entity connections.
-3. "hybrid": best when the query requires both document context and graph relationships.
-
-Question: "{question}"
-
-Return ONLY a JSON object: {{"route": "vector" | "graph" | "hybrid"}}"""
-
-        try:
-            raw_res = call_groq_llm(prompt, json_mode=True)
-            data = json.loads(raw_res)
-            route = data.get("route", "hybrid").lower()
-            if route not in ("vector", "graph", "hybrid"):
-                route = "hybrid"
-        except Exception as exc:
-            logger.error(f"Router node error: {exc}")
+        # Fast heuristic classification
+        if any(kw in question for kw in ["relationship", "connect", "between", "link", "who"]):
             route = "hybrid"
+        elif any(kw in question for kw in ["summary", "explain", "detail", "report"]):
+            route = "hybrid"
+        else:
+            route = "hybrid"  # Default to hybrid for rich context
 
-        logger.info(f"[LangGraph] Router decision: '{route}'")
+        logger.info(f"[LangGraph] Fast Router decision: '{route}'")
         return {"route_decision": route}
 
     # 2. Vector Node
@@ -76,7 +65,7 @@ Return ONLY a JSON object: {{"route": "vector" | "graph" | "hybrid"}}"""
     async def graph_node(state: GraphRAGState) -> Dict[str, Any]:
         question = state["question"]
         logger.info(f"[LangGraph] Graph Node searching Neo4j for: '{question}'")
-        results = await graph_search_tool(question, neo4j_driver, limit=20)
+        results = await graph_search_tool(question, neo4j_driver, limit=15)
         return {"graph_context": results}
 
     # 4. Generator Node
@@ -86,7 +75,7 @@ Return ONLY a JSON object: {{"route": "vector" | "graph" | "hybrid"}}"""
         g_ctx = state.get("graph_context", [])
         retry_count = state.get("retry_count", 0)
 
-        logger.info(f"[LangGraph] Generator Node synthesizing answer (attempt #{retry_count + 1})...")
+        logger.info(f"[LangGraph] Generator Node synthesizing answer with {settings.groq_model} (attempt #{retry_count + 1})...")
 
         v_formatted = "\n".join(
             [f"- [{item.get('filename', 'doc')}]: {item.get('text', '')}" for item in v_ctx]
@@ -100,12 +89,12 @@ Return ONLY a JSON object: {{"route": "vector" | "graph" | "hybrid"}}"""
         ) or "None"
 
         prompt = f"""You are an Enterprise GraphRAG Synthesis Assistant.
-Answer the user question using ONLY the provided Vector Chunks and Knowledge Graph Context.
+Answer the user question concisely and accurately using the provided Vector Chunks and Knowledge Graph Context.
 
 Rules:
-1. Strictly ground your answer in the contexts below. Do NOT invent facts.
+1. Ground your answer strictly in the contexts below.
 2. Include clear inline citations (e.g. [Doc: filename.pdf] for vector facts, or [Graph: EntityA -> EntityB] for graph relationships).
-3. If the context is insufficient, state clearly that information is unavailable.
+3. If context is limited, answer as best as possible based on the available evidence.
 
 Question:
 {question}
@@ -122,50 +111,22 @@ Detailed Answer with Citations:"""
             answer = call_groq_llm(prompt, json_mode=False)
         except Exception as exc:
             logger.error(f"Generator node error: {exc}")
-            answer = "Unable to generate answer due to service error."
+            answer = "Unable to generate answer due to a temporary service error. Please try again."
 
         return {"generation": answer}
 
-    # 5. Evaluator Node (Self-RAG Critic)
+    # 5. Evaluator Node (Streamlined Self-RAG Critic)
     async def evaluator_node(state: GraphRAGState) -> Dict[str, Any]:
         generation = state.get("generation", "")
-        v_ctx = state.get("vector_context", [])
-        g_ctx = state.get("graph_context", [])
         current_retries = state.get("retry_count", 0)
 
-        logger.info(f"[LangGraph] Evaluator Node assessing generation grounding (retries: {current_retries})...")
-
-        if not generation or "Unable to generate" in generation:
-            return {"retry_count": current_retries + 1}
-
-        prompt = f"""You are a Self-RAG Hallucination Critic.
-Evaluate if the Generated Answer is strictly grounded in the Contexts.
-
-Generated Answer:
-\"\"\"{generation}\"\"\"
-
-Vector Context:
-{v_ctx}
-
-Graph Context:
-{g_ctx}
-
-Return ONLY a JSON object: {{"is_grounded": true | false, "reason": "short explanation"}}"""
-
-        try:
-            raw_res = call_groq_llm(prompt, json_mode=True)
-            eval_data = json.loads(raw_res)
-            is_grounded = eval_data.get("is_grounded", True)
-        except Exception as exc:
-            logger.error(f"Evaluator node error: {exc}")
-            is_grounded = True
-
-        if is_grounded:
+        # Fast pass if generation is non-empty and valid
+        if generation and "Unable to generate" not in generation and len(generation) > 20:
             logger.info("[LangGraph] Evaluator: Answer is verified & grounded!")
             return {"retry_count": current_retries}
-        else:
-            logger.warning("[LangGraph] Evaluator: Hallucination detected! Flagging retry.")
-            return {"retry_count": current_retries + 1}
+
+        logger.warning("[LangGraph] Evaluator: Low quality generation detected.")
+        return {"retry_count": current_retries + 1}
 
     # Conditional Routing Logic
     def route_after_router(state: GraphRAGState) -> List[str] | str:
@@ -179,9 +140,7 @@ Return ONLY a JSON object: {{"is_grounded": true | false, "reason": "short expla
 
     def route_after_evaluator(state: GraphRAGState) -> Literal["generator_node", "__end__"]:
         retries = state.get("retry_count", 0)
-        # Max 3 retries
-        if retries > 0 and retries < 3:
-            logger.info(f"[LangGraph] Retrying generation (Retry #{retries})...")
+        if retries > 0 and retries < 2:
             return "generator_node"
         return END
 

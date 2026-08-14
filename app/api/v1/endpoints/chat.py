@@ -43,6 +43,12 @@ async def get_semantic_cache(
         raw_items = await redis_client.lrange(CACHE_KEY, 0, 100)
         for raw in raw_items:
             data = json.loads(raw)
+            cached_answer = data.get("answer", "")
+            
+            # Do NOT return cached error messages
+            if "Unable to generate" in cached_answer or "service error" in cached_answer.lower():
+                continue
+
             cached_vector = data.get("vector")
             if cached_vector:
                 similarity = calculate_cosine_similarity(query_vector, cached_vector)
@@ -64,7 +70,11 @@ async def save_semantic_cache(
     route_decision: str,
     sources: Dict[str, Any],
 ) -> None:
-    """Store question embedding vector and generated response in Redis."""
+    """Store question embedding vector and generated response in Redis (skipping error outputs)."""
+    if not answer or "Unable to generate" in answer or "service error" in answer.lower():
+        logger.info("Skipping cache storage for error or failed response.")
+        return
+
     try:
         record = {
             "question": question,
@@ -135,10 +145,10 @@ async def chat_with_agent(
         sources = {
             "vector_chunks_count": len(vector_ctx),
             "graph_relations_count": len(graph_ctx),
-            "vector_sources": [v.get("filename") for v in vector_ctx],
+            "vector_sources": list(set([v.get("filename") for v in vector_ctx if v.get("filename")])),
         }
 
-        # Step 4: Save Result to Redis Semantic Cache
+        # Step 4: Save Valid Result to Redis Semantic Cache
         if query_vector and answer:
             await save_semantic_cache(
                 redis_client=redis,

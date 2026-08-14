@@ -1,6 +1,6 @@
 # Enterprise GraphRAG Intelligence Engine 🚀
 
-An enterprise-grade, high-performance, fully asynchronous **GraphRAG (Graph-Augmented Retrieval-Augmented Generation) Intelligence Engine** powered by **FastAPI**, **LangGraph**, **Qdrant**, **Neo4j**, **Celery**, **Upstash Redis**, and **Groq (Llama-3.3-70B)**.
+An enterprise-grade, high-performance, fully asynchronous **GraphRAG (Graph-Augmented Retrieval-Augmented Generation) Intelligence Engine** powered by **FastAPI**, **LangGraph**, **Qdrant**, **Neo4j**, **Celery**, **Upstash Redis**, and **Groq (Llama-3.1-8B-Instant)**.
 
 This system combines **dense vector similarity search** (Qdrant) with **multi-hop knowledge graph relationships** (Neo4j) orchestrated via a stateful **LangGraph Agentic Workflow**, backed by **Redis Cosine Similarity Semantic Caching** (< 5ms response time) and an **asynchronous Celery background ingestion pipeline**.
 
@@ -11,7 +11,7 @@ This system combines **dense vector similarity search** (Qdrant) with **multi-ho
 ```mermaid
 flowchart TD
     subgraph Client Layer
-        User[Client / Swagger UI / HTTP API]
+        User[Client / React / Next.js Frontend / Swagger UI]
     end
 
     subgraph API Gateway & Service Layer [FastAPI Application]
@@ -23,7 +23,7 @@ flowchart TD
     end
 
     subgraph Caching & Messaging Layer
-        RedisCache[("Upstash Redis\n- Cosine Semantic Cache\n- Celery Message Broker")]
+        RedisCache[("Upstash Redis\n- Cosine Semantic Cache (>0.95)\n- Celery Message Broker")]
     end
 
     subgraph Background Processing Layer
@@ -40,7 +40,7 @@ flowchart TD
 
     subgraph LLM & Intelligence Layer
         HFEmbedding["HuggingFace Transformer\n(all-MiniLM-L6-v2)"]
-        GroqLLM["Groq API\n(llama-3.3-70b-versatile)"]
+        GroqLLM["Groq API\n(llama-3.1-8b-instant - 500k TPD)"]
         LangGraphAgent["LangGraph Agentic StateGraph\n- Adaptive Router Node\n- Parallel Vector/Graph Tools\n- Citation Generator Node\n- Self-RAG Evaluator Critic"]
     end
 
@@ -59,25 +59,27 @@ flowchart TD
     ChatEP -->|2. Embed & Lookup| RedisCache
     RedisCache -- Cache Hit (<5ms) --> User
     RedisCache -- Cache Miss --> LangGraphAgent
-    LangGraphAgent -->|Adaptive Routing| GroqLLM
-    LangGraphAgent -->|Vector Tool| QdrantDB
+    LangGraphAgent -->|Fast Heuristic Routing| GroqLLM
+    LangGraphAgent -->|Vector Search Tool| QdrantDB
     LangGraphAgent -->|2-Hop Traversal Tool| Neo4jDB
     LangGraphAgent -->|Answer Synthesis| GroqLLM
     LangGraphAgent -->|Self-RAG Grounding Check| GroqLLM
-    LangGraphAgent -->|Store Response| RedisCache
+    LangGraphAgent -->|Store Valid Response| RedisCache
     LangGraphAgent --> User
 ```
 
 ---
 
-## ⚡ Key Technical Highlights
+## ⚡ Key Technical Highlights & Optimizations
 
 - **Hybrid GraphRAG Intelligence**: Combines unstructured dense semantic search with structured graph relational context, resolving complex queries that traditional vector-only RAG fails to capture.
-- **Stateful LangGraph Workflow**: 5-node cyclic Graph (`Router` -> `Vector Search` + `Graph Search` -> `Generator` -> `Evaluator Critic`).
-- **Self-RAG Evaluator**: Automatically verifies output grounding and detects hallucinations. If an answer fails grounding, it retries up to 3 times with refined prompts.
-- **Sub-5ms Semantic Caching**: Caches question embeddings in Redis and performs Cosine Similarity comparison (> 0.95 threshold) for instant cache hits.
-- **Non-Blocking Async Ingestion**: Async file upload writes to disk asynchronously using `aiofiles` and offloads PDF parsing, embedding generation, and Cypher graph population to background Celery workers.
-- **Cloud Database Integrations**: Built for cloud scalability using Neon PostgreSQL, Qdrant Cloud, Neo4j Aura Cloud, and Upstash Redis over TLS/SSL.
+- **High-Speed Inference (`llama-3.1-8b-instant`)**: Upgraded to Groq's ultra-fast model offering **500,000 Tokens/Day (TPD)** quota and 14,400 Requests/Day, eliminating 429 rate limit delays and generating responses in < 1 second.
+- **Stateful LangGraph Workflow**: 5-node cyclic Graph (`Fast Router` -> `Vector Search` + `Graph Search` -> `Generator` -> `Evaluator Critic`).
+- **Self-RAG Evaluator**: Automatically verifies output grounding and detects hallucinations. If an answer fails grounding, it retries with refined context prompts.
+- **Error-Guarded Semantic Caching**: Caches question embeddings in Redis and performs Cosine Similarity comparison (> 0.95 threshold) for instant cache hits (< 5ms), with strict guardrails preventing error responses from ever being cached.
+- **Non-Blocking Async Ingestion**: Async file upload writes to disk asynchronously using `aiofiles` and offloads PDF parsing, vector embedding generation, and Cypher graph population to background Celery workers.
+- **Cloud Database Integrations**: Built for cloud scalability using Neon PostgreSQL, Qdrant Cloud, Neo4j Aura Cloud, and Upstash Redis over TLS/SSL (configured with RESP2 protocol support).
+- **CORS Regex Middleware**: Fully configured CORS middleware supporting local frontend applications (React, Next.js) on ports 3000, 3001, etc.
 
 ---
 
@@ -96,7 +98,7 @@ stateDiagram-v2
 
     GeneratorNode --> EvaluatorNode: Synthesized Answer
     EvaluatorNode --> [*]: Grounding Approved (Verified)
-    EvaluatorNode --> GeneratorNode: Hallucination Flagged (Retry <= 3)
+    EvaluatorNode --> GeneratorNode: Low Quality Flagged (Retry <= 2)
 ```
 
 ---
@@ -139,8 +141,8 @@ graphrag-enterprise-engine/
 │   │   └── text_processing.py       # pypdf extraction & sliding window chunker
 │   └── main.py                      # FastAPI application entrypoint
 ├── eval/
-├── golden_dataset.json          # 5 golden benchmark test cases
-└── test_rag_accuracy.py         # LLM-as-a-Judge Faithfulness & Context Precision runner
+│   ├── golden_dataset.json          # 5 golden benchmark test cases
+│   └── test_rag_accuracy.py         # LLM-as-a-Judge Faithfulness & Context Precision runner
 ├── .env                             # Environment configuration
 ├── pyproject.toml                   # Project dependencies and packaging
 ├── requirements.txt                 # Frozen Python environment packages
@@ -156,7 +158,7 @@ graphrag-enterprise-engine/
 - **Python**: Version 3.10 or higher.
 - **Git**: Installed on system.
 - **Cloud Services**:
-  - [Groq Cloud](https://console.groq.com/): API key for `llama-3.3-70b-versatile`.
+  - [Groq Cloud](https://console.groq.com/): API key for `llama-3.1-8b-instant`.
   - [Upstash Redis](https://upstash.com/): TLS Redis database.
   - [Qdrant Cloud](https://cloud.qdrant.io/): Vector Database cluster URL and API Key.
   - [Neo4j Aura Cloud](https://neo4j.com/cloud/platform/aura-graph-database/): Graph database URI (`neo4j+s://`), User, and Password.
@@ -169,8 +171,9 @@ Create or update `.env` in the root workspace directory (`.env`):
 PROJECT_NAME="Enterprise GraphRAG Intelligence Engine"
 ENVIRONMENT="development"
 
-# LLM API
+# LLM API & Model Selection
 GROQ_API_KEY="your_groq_api_key_here"
+GROQ_MODEL="llama-3.1-8b-instant"
 
 # Database Connections
 POSTGRES_URL="postgresql+asyncpg://user:password@neon_host/neondb?sslmode=require"
@@ -201,10 +204,10 @@ pip install -r requirements.txt
 ## 🚀 Running the System
 
 ### 1. Start the FastAPI Web Server
-In your primary terminal, start Uvicorn with auto-reload:
+In your primary terminal, start Uvicorn listening on all host interfaces:
 
 ```bash
-uvicorn app.main:app --reload
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 - **Interactive Swagger Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)

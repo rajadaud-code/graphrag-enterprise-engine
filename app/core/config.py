@@ -7,8 +7,9 @@ class Settings(BaseSettings):
     project_name: str = "Enterprise GraphRAG Intelligence Engine"
     environment: str = "development"
 
-    # LLM API Key
+    # LLM Configuration
     groq_api_key: str = ""
+    groq_model: str = "llama-3.1-8b-instant"  # High-speed (500k TPD, 14.4k RPM) model
 
     # Database URLs & Credentials
     postgres_url: str

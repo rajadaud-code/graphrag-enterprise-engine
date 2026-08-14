@@ -43,16 +43,17 @@ Text Chunk to Process:
     reraise=True,
 )
 def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
-    """Call Groq LLM using llama-3.3-70b-versatile with strict JSON mode and tenacity retry backoff."""
+    """Call Groq LLM using configured model (llama-3.1-8b-instant) with strict JSON mode and tenacity retry backoff."""
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not configured in settings")
 
     client = Groq(api_key=settings.groq_api_key)
     prompt = EXTRACTION_PROMPT.format(chunk_text=chunk_text)
 
-    logger.info("Calling Groq LLM (llama-3.3-70b-versatile) for JSON entity extraction...")
+    model_name = settings.groq_model
+    logger.info(f"Calling Groq LLM ({model_name}) for JSON entity extraction...")
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model=model_name,
         messages=[{"role": "user", "content": prompt}],
         response_format={"type": "json_object"},
         temperature=0.1,
