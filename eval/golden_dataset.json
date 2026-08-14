@@ -1,0 +1,27 @@
+[
+  {
+    "question": "What entity published the AI Index Report 2024?",
+    "expected_answer": "Stanford University published the AI Index Report 2024.",
+    "expected_entities": ["Stanford University", "AI Index Report 2024"]
+  },
+  {
+    "question": "Which organizations developed key Large Language Models highlighted in recent research?",
+    "expected_answer": "Organizations such as OpenAI and Google developed key Large Language Models highlighted in recent research.",
+    "expected_entities": ["OpenAI", "Google", "Large Language Models"]
+  },
+  {
+    "question": "How does GraphRAG combine vector search with Knowledge Graphs?",
+    "expected_answer": "GraphRAG retrieves dense vector embeddings for semantic similarity alongside sub-graph relational entity triples from Neo4j to provide rich context.",
+    "expected_entities": ["GraphRAG", "Vector Search", "Knowledge Graph", "Neo4j", "Qdrant"]
+  },
+  {
+    "question": "What role does Redis play in the Enterprise GraphRAG Architecture?",
+    "expected_answer": "Redis serves as both the Celery message broker for background document ingestion and an ultra-fast semantic cache for sub-5ms similarity lookup.",
+    "expected_entities": ["Redis", "Celery", "Semantic Cache"]
+  },
+  {
+    "question": "What LLM model is used for Knowledge Graph entity extraction and response generation?",
+    "expected_answer": "The Groq API hosting the llama-3.3-70b-versatile model is used for JSON entity extraction and response synthesis.",
+    "expected_entities": ["Groq API", "llama-3.3-70b-versatile", "LLM"]
+  }
+]

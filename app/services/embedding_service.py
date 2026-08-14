@@ -42,6 +42,7 @@ async def upsert_chunks_to_qdrant(
     chunks: List[str],
     filename: str,
     collection_name: str = "documents",
+    batch_size: int = 100,
 ) -> int:
     """Batch embed text chunks and upsert them with payload metadata into Qdrant."""
     if not chunks:
@@ -80,9 +81,12 @@ async def upsert_chunks_to_qdrant(
             )
         )
 
-    logger.info(f"Upserting {len(points)} points into Qdrant collection '{collection_name}' for '{filename}'")
-    await qdrant_client.upsert(
-        collection_name=collection_name,
-        points=points,
-    )
+    logger.info(f"Upserting {len(points)} points into Qdrant collection '{collection_name}' in batches of {batch_size}")
+    for i in range(0, len(points), batch_size):
+        batch = points[i : i + batch_size]
+        await qdrant_client.upsert(
+            collection_name=collection_name,
+            points=batch,
+        )
+
     return len(points)

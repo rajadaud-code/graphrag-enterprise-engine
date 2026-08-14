@@ -34,11 +34,14 @@ async def get_test_data_counts(
         exists = await qdrant.collection_exists(collection_name)
         if exists:
             info = await qdrant.get_collection(collection_name)
+            points_cnt = getattr(info, "points_count", 0)
+            if points_cnt is None:
+                points_cnt = 0
+
             result["qdrant"] = {
                 "collection": collection_name,
                 "status": str(info.status),
-                "points_count": info.points_count,
-                "vectors_count": info.vectors_count,
+                "points_count": points_cnt,
             }
         else:
             result["qdrant"] = {

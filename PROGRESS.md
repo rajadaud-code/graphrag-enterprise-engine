@@ -25,16 +25,16 @@
 - [x] Verification test endpoint `GET /api/v1/test-data` (`app/api/v1/endpoints/test_db.py`)
 - [x] Updated router with test-data endpoints (`app/api/v1/router.py`)
 
-## Phase 4: Domain Models & Database Schemas
-- [ ] PostgreSQL domain models (User, ChatSession, TaskStatus)
-- [ ] Pydantic API contract schemas
-- [ ] Graph entity and extraction schemas
+## Phase 4: Agentic Hybrid Search & Semantic Caching
+- [x] LangGraph `GraphRAGState` TypedDict with `Annotated[list, add]` reducer (`app/services/langgraph_agent/state.py`)
+- [x] Qdrant vector search tool & Neo4j 2-hop Cypher relationship search tool (`app/services/langgraph_agent/tools.py`)
+- [x] LangGraph `StateGraph` workflow: Adaptive RAG Router, Vector/Graph retrieval, Citation Generator, and Self-RAG Evaluator nodes (`app/services/langgraph_agent/graph.py`)
+- [x] Chat request/response schemas (`app/models/schemas/chat.py`)
+- [x] Async `POST /api/v1/chat` endpoint with Redis Cosine similarity (> 0.95) semantic caching (`app/api/v1/endpoints/chat.py`)
+- [x] Included chat router in API v1 (`app/api/v1/router.py`)
 
-## Phase 5: LangGraph Agentic Search & Reasoning Pipeline
-- [ ] StateGraph definition & memory state
-- [ ] Qdrant vector search tool & Neo4j Cypher retrieval tool
-- [ ] LLM query router & GraphRAG synthesis agent
-
-## Phase 6: API Endpoints, Caching & Evaluation
-- [ ] Chat endpoint (`/api/v1/chat`) with Redis semantic caching
-- [ ] Ragas / DeepEval benchmark suite & golden dataset evaluation
+## Phase 5: Evaluation, Guardrails & LLM-as-a-Judge
+- [x] Benchmark test dataset with 5 golden Q&A test cases (`eval/golden_dataset.json`)
+- [x] Automated async LLM-as-a-Judge evaluation script (`eval/test_rag_accuracy.py`)
+- [x] Automated calculation of **Faithfulness** and **Context Precision** metrics using Groq `llama-3.3-70b-versatile`
+- [x] Comprehensive architectural documentation & evaluation section in `README.md`

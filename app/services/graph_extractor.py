@@ -10,29 +10,26 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 EXTRACTION_PROMPT = """You are an expert Enterprise Knowledge Graph Extractor.
-Extract all key domain entities and their semantic relationships from the provided text chunk.
+Extract key domain entities and their semantic relationships from the provided text chunk.
 
-Rules:
-1. Return ONLY a valid JSON object matching the following structure:
-{
+Return ONLY a JSON object matching this exact schema:
+{{
   "entities": [
-    {
+    {{
       "name": "Exact Name of Entity",
       "type": "ORGANIZATION | PERSON | LOCATION | CONCEPT | PRODUCT | EVENT | OTHER",
       "description": "Brief description of entity"
-    }
+    }}
   ],
   "relationships": [
-    {
+    {{
       "source": "Source Entity Name",
       "target": "Target Entity Name",
       "type": "UPPERCASE_RELATION_TYPE",
       "description": "Brief description of relationship"
-    }
+    }}
   ]
-}
-2. Keep entity names canonical and relationship types concise (e.g. LOCATED_IN, ACQUIRED, SUPPORTS, MANAGES).
-3. Do not output any markdown formatting, preamble, or commentary outside the JSON object.
+}}
 
 Text Chunk to Process:
 \"\"\"{chunk_text}\"\"\"
@@ -61,9 +58,35 @@ def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
         temperature=0.1,
     )
 
-    content = response.choices[0].message.content or "{}"
-    extracted_json = json.loads(content)
-    return extracted_json
+    content = (response.choices[0].message.content or "{}").strip()
+    if content.startswith("```json"):
+        content = content.replace("```json", "", 1).rstrip("```").strip()
+    elif content.startswith("```"):
+        content = content.replace("```", "", 1).rstrip("```").strip()
+
+    try:
+        extracted = json.loads(content)
+        if isinstance(extracted, str):
+            extracted = json.loads(extracted)
+    except Exception as exc:
+        logger.error(f"Failed to parse LLM JSON content: {exc}")
+        extracted = {}
+
+    if not isinstance(extracted, dict):
+        extracted = {}
+
+    entities = extracted.get("entities", [])
+    relationships = extracted.get("relationships", [])
+
+    if not isinstance(entities, list):
+        entities = []
+    if not isinstance(relationships, list):
+        relationships = []
+
+    return {
+        "entities": entities,
+        "relationships": relationships,
+    }
 
 
 async def ingest_graph_to_neo4j(
@@ -76,6 +99,11 @@ async def ingest_graph_to_neo4j(
     """Ingest extracted entities, chunk node, and relationships into Neo4j using Cypher MERGE."""
     entities: List[Dict[str, Any]] = graph_data.get("entities", [])
     relationships: List[Dict[str, Any]] = graph_data.get("relationships", [])
+
+    if not isinstance(entities, list):
+        entities = []
+    if not isinstance(relationships, list):
+        relationships = []
 
     cypher_chunk_and_entities = """
     MERGE (c:Chunk {id: $chunk_id})
@@ -100,13 +128,14 @@ async def ingest_graph_to_neo4j(
 
     async with neo4j_driver.session() as session:
         # Ingest Chunk & Entities
-        await session.run(
-            cypher_chunk_and_entities,
-            chunk_id=chunk_id,
-            filename=filename,
-            chunk_text=chunk_text,
-            entities=entities,
-        )
+        if entities:
+            await session.run(
+                cypher_chunk_and_entities,
+                chunk_id=chunk_id,
+                filename=filename,
+                chunk_text=chunk_text,
+                entities=entities,
+            )
 
         # Ingest Entity-to-Entity Relationships
         if relationships:

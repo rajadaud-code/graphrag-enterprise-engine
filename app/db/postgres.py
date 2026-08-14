@@ -7,8 +7,11 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Sanitize PostgreSQL URL for asyncpg (asyncpg expects ssl=require instead of sslmode=require)
+postgres_url = settings.postgres_url.replace("sslmode=require", "ssl=require")
+
 engine = create_async_engine(
-    settings.postgres_url,
+    postgres_url,
     echo=False,
     future=True,
     pool_pre_ping=True,

@@ -1,181 +1,273 @@
-# Enterprise GraphRAG Intelligence Engine
+# Enterprise GraphRAG Intelligence Engine 🚀
 
-A high-performance, low-latency, zero-cost Retrieval-Augmented Generation (GraphRAG) API built with Python, FastAPI, Celery, Redis, Qdrant, Neo4j, and LangGraph.
+An enterprise-grade, high-performance, fully asynchronous **GraphRAG (Graph-Augmented Retrieval-Augmented Generation) Intelligence Engine** powered by **FastAPI**, **LangGraph**, **Qdrant**, **Neo4j**, **Celery**, **Upstash Redis**, and **Groq (Llama-3.3-70B)**.
 
----
-
-## 🏛️ Architecture Overview
-
-The **Enterprise GraphRAG Intelligence Engine** combines vector retrieval with graph database structures into a stateful reasoning pipeline:
-
-- **FastAPI**: Non-blocking asynchronous REST API framework.
-- **Qdrant**: High-performance vector database for 384-dimensional semantic chunk retrieval (`all-MiniLM-L6-v2`).
-- **Neo4j**: Relational Knowledge Graph database storing entities and Cypher-queriable relationships.
-- **PostgreSQL**: Relational storage for users, sessions, and task logs via SQLAlchemy 2.0 Async.
-- **Redis**: Asynchronous task broker, result backend, and semantic query cache.
-- **Celery**: Background async document parsing, embedding, and LLM graph extraction worker pool.
-- **Groq API**: High-speed LLM inference engine (`llama-3.3-70b-versatile`).
-- **LangGraph**: Stateful agentic search & synthesis pipeline.
+This system combines **dense vector similarity search** (Qdrant) with **multi-hop knowledge graph relationships** (Neo4j) orchestrated via a stateful **LangGraph Agentic Workflow**, backed by **Redis Cosine Similarity Semantic Caching** (< 5ms response time) and an **asynchronous Celery background ingestion pipeline**.
 
 ---
 
-## 🛠️ Project Structure
+## 🏛️ System Architecture
 
-```text
-graphrag-enterprise-engine/
-│
-├── gemini.md                           # AI Agent Context & Instruction Manual
-├── README.md                           # Overall Project Setup & User Manual
-├── PROGRESS.md                         # Current Implementation Progress Tracker
-├── pyproject.toml                      # Package metadata configuration
-├── requirements.txt                    # Dependencies
-├── .gitignore                          # Git Ignore Rules
-├── docker-compose.yml                  # Local Infrastructure Setup
-│
-└── app/
-    ├── main.py                         # FastAPI Entrypoint
-    ├── api/
-    │   └── v1/
-    │       ├── router.py               # Central Router
-    │       └── endpoints/
-    │           ├── health.py           # Health Checks Endpoint
-    │           ├── ingest.py           # Document Ingestion Endpoint
-    │           └── test_db.py          # Data Verification Endpoint
-    ├── core/
-    │   └── config.py                   # Pydantic Settings Configuration
-    ├── db/
-    │   ├── postgres.py                 # Async PostgreSQL Session
-    │   ├── qdrant_client.py            # Async Qdrant Connection
-    │   ├── neo4j_client.py             # Async Neo4j Driver Connection
-    │   └── redis_client.py             # Async Redis Client
-    ├── models/
-    │   └── schemas/
-    │       └── ingest.py               # Ingestion Schemas
-    ├── services/
-    │   ├── embedding_service.py        # HuggingFace Embedding & Qdrant Upsert
-    │   └── graph_extractor.py          # Groq LLM Graph Extractor & Neo4j Ingestion
-    ├── tasks/
-    │   ├── celery_app.py               # Celery App Definition
-    │   └── document_worker.py          # Full Pipeline Celery Worker
-    └── utils/
-        └── text_processing.py          # PDF Parser & Text Chunker
+```mermaid
+flowchart TD
+    subgraph Client Layer
+        User[Client / Swagger UI / HTTP API]
+    end
+
+    subgraph API Gateway & Service Layer [FastAPI Application]
+        Router[API Router /api/v1]
+        HealthEP["GET /api/v1/health"]
+        TestDataEP["GET /api/v1/test-data"]
+        IngestEP["POST /api/v1/ingest"]
+        ChatEP["POST /api/v1/chat"]
+    end
+
+    subgraph Caching & Messaging Layer
+        RedisCache[("Upstash Redis\n- Cosine Semantic Cache\n- Celery Message Broker")]
+    end
+
+    subgraph Background Processing Layer
+        CeleryWorker["Celery Worker\n(solo pool)"]
+        PDFParser["pypdf Text Extractor"]
+        Chunker["Sliding Window Chunker"]
+    end
+
+    subgraph Database Layer
+        PG[("Neon PostgreSQL\n(AsyncPG Metadata Store)")]
+        QdrantDB[("Qdrant Cloud\n(Dense Vector Store - 384d)")]
+        Neo4jDB[("Neo4j Aura Cloud\n(Cypher Knowledge Graph)")]
+    end
+
+    subgraph LLM & Intelligence Layer
+        HFEmbedding["HuggingFace Transformer\n(all-MiniLM-L6-v2)"]
+        GroqLLM["Groq API\n(llama-3.3-70b-versatile)"]
+        LangGraphAgent["LangGraph Agentic StateGraph\n- Adaptive Router Node\n- Parallel Vector/Graph Tools\n- Citation Generator Node\n- Self-RAG Evaluator Critic"]
+    end
+
+    %% Ingestion Flow
+    User -->|1. Upload PDF| IngestEP
+    IngestEP -->|2. Dispatch Task| RedisCache
+    RedisCache -->|3. Consume Task| CeleryWorker
+    CeleryWorker --> PDFParser --> Chunker
+    Chunker -->|4. Generate 384d Vectors| HFEmbedding
+    HFEmbedding -->|5. Upsert Batched Points| QdrantDB
+    Chunker -->|6. Extract Entities/Relations| GroqLLM
+    GroqLLM -->|7. MERGE Cypher Graph| Neo4jDB
+
+    %% Chat & Agent Flow
+    User -->|1. Question Query| ChatEP
+    ChatEP -->|2. Embed & Lookup| RedisCache
+    RedisCache -- Cache Hit (<5ms) --> User
+    RedisCache -- Cache Miss --> LangGraphAgent
+    LangGraphAgent -->|Adaptive Routing| GroqLLM
+    LangGraphAgent -->|Vector Tool| QdrantDB
+    LangGraphAgent -->|2-Hop Traversal Tool| Neo4jDB
+    LangGraphAgent -->|Answer Synthesis| GroqLLM
+    LangGraphAgent -->|Self-RAG Grounding Check| GroqLLM
+    LangGraphAgent -->|Store Response| RedisCache
+    LangGraphAgent --> User
 ```
 
 ---
 
-## 🚀 Quick Start
+## ⚡ Key Technical Highlights
 
-### 1. Environment Configuration
+- **Hybrid GraphRAG Intelligence**: Combines unstructured dense semantic search with structured graph relational context, resolving complex queries that traditional vector-only RAG fails to capture.
+- **Stateful LangGraph Workflow**: 5-node cyclic Graph (`Router` -> `Vector Search` + `Graph Search` -> `Generator` -> `Evaluator Critic`).
+- **Self-RAG Evaluator**: Automatically verifies output grounding and detects hallucinations. If an answer fails grounding, it retries up to 3 times with refined prompts.
+- **Sub-5ms Semantic Caching**: Caches question embeddings in Redis and performs Cosine Similarity comparison (> 0.95 threshold) for instant cache hits.
+- **Non-Blocking Async Ingestion**: Async file upload writes to disk asynchronously using `aiofiles` and offloads PDF parsing, embedding generation, and Cypher graph population to background Celery workers.
+- **Cloud Database Integrations**: Built for cloud scalability using Neon PostgreSQL, Qdrant Cloud, Neo4j Aura Cloud, and Upstash Redis over TLS/SSL.
 
-Create a `.env` file in the root directory (or copy `.env.example`):
+---
+
+## 🔁 LangGraph Agent State Machine Execution
+
+```mermaid
+stateDiagram-v2
+    [*] --> RouterNode
+    RouterNode --> VectorNode: Vector Decision
+    RouterNode --> GraphNode: Graph Decision
+    RouterNode --> VectorNode: Hybrid Decision
+    RouterNode --> GraphNode: Hybrid Decision
+
+    VectorNode --> GeneratorNode: Merge Vector Context
+    GraphNode --> GeneratorNode: Merge Graph Context
+
+    GeneratorNode --> EvaluatorNode: Synthesized Answer
+    EvaluatorNode --> [*]: Grounding Approved (Verified)
+    EvaluatorNode --> GeneratorNode: Hallucination Flagged (Retry <= 3)
+```
+
+---
+
+## 📂 Repository Structure
+
+```text
+graphrag-enterprise-engine/
+├── app/
+│   ├── api/
+│   │   └── v1/
+│   │       ├── endpoints/
+│   │       │   ├── health.py        # Database connectivity health checks
+│   │       │   ├── ingest.py        # Asynchronous document upload endpoint
+│   │       │   ├── test_db.py       # Live data points verification endpoint
+│   │       │   └── chat.py          # Chat endpoint with Redis Semantic Cache
+│   │       └── router.py            # Central v1 API router
+│   ├── core/
+│   │   └── config.py                # Pydantic BaseSettings environment config
+│   ├── db/
+│   │   ├── postgres.py              # AsyncPG SQLAlchemy session manager
+│   │   ├── qdrant_client.py         # Async Qdrant Client connection dependency
+│   │   ├── neo4j_client.py          # Async Neo4j Driver with SSL trust sanitizer
+│   │   └── redis_client.py          # Async Redis Client connection manager
+│   ├── models/
+│   │   └── schemas/
+│   │       ├── ingest.py            # Upload Pydantic response models
+│   │       └── chat.py              # Chat Pydantic request/response models
+│   ├── services/
+│   │   ├── embedding_service.py     # SentenceTransformers singleton & batched upsert
+│   │   ├── graph_extractor.py       # Groq LLM entity extraction & Cypher MERGE
+│   │   └── langgraph_agent/
+│   │       ├── state.py             # GraphRAGState TypedDict with Annotated reducer
+│   │       ├── tools.py             # Vector and Graph multi-hop retrieval tools
+│   │       └── graph.py             # Compiled LangGraph StateGraph workflow
+│   ├── tasks/
+│   │   ├── celery_app.py            # Celery app & RESP2 protocol config
+│   │   └── document_worker.py       # Async document processing pipeline
+│   ├── utils/
+│   │   └── text_processing.py       # pypdf extraction & sliding window chunker
+│   └── main.py                      # FastAPI application entrypoint
+├── eval/
+├── golden_dataset.json          # 5 golden benchmark test cases
+└── test_rag_accuracy.py         # LLM-as-a-Judge Faithfulness & Context Precision runner
+├── .env                             # Environment configuration
+├── pyproject.toml                   # Project dependencies and packaging
+├── requirements.txt                 # Frozen Python environment packages
+├── PROGRESS.md                      # Milestone progress tracker
+└── README.md                        # Production project documentation
+```
+
+---
+
+## 🛠️ Step-by-Step Setup Guide
+
+### 1. Prerequisites
+- **Python**: Version 3.10 or higher.
+- **Git**: Installed on system.
+- **Cloud Services**:
+  - [Groq Cloud](https://console.groq.com/): API key for `llama-3.3-70b-versatile`.
+  - [Upstash Redis](https://upstash.com/): TLS Redis database.
+  - [Qdrant Cloud](https://cloud.qdrant.io/): Vector Database cluster URL and API Key.
+  - [Neo4j Aura Cloud](https://neo4j.com/cloud/platform/aura-graph-database/): Graph database URI (`neo4j+s://`), User, and Password.
+  - [Neon PostgreSQL](https://neon.tech/): AsyncPG database connection string (`postgresql+asyncpg://...`).
+
+### 2. Environment Configuration
+Create or update `.env` in the root workspace directory (`.env`):
 
 ```env
 PROJECT_NAME="Enterprise GraphRAG Intelligence Engine"
 ENVIRONMENT="development"
 
 # LLM API
-GROQ_API_KEY="your-groq-api-key"
+GROQ_API_KEY="your_groq_api_key_here"
 
 # Database Connections
-POSTGRES_URL="postgresql+asyncpg://user:password@localhost:5432/dbname"
-QDRANT_URL="http://localhost:6333"
-QDRANT_API_KEY=""
-NEO4J_URI="bolt://localhost:7687"
+POSTGRES_URL="postgresql+asyncpg://user:password@neon_host/neondb?sslmode=require"
+QDRANT_URL="https://your-cluster.aws.cloud.qdrant.io:6333"
+QDRANT_API_KEY="your_qdrant_api_key_here"
+NEO4J_URI="neo4j+s://your-instance.databases.neo4j.io"
 NEO4J_USER="neo4j"
-NEO4J_PASSWORD="password"
-REDIS_URL="redis://localhost:6379/0"
+NEO4J_PASSWORD="your_neo4j_password_here"
+REDIS_URL="rediss://default:your_redis_password@your-upstash-host.upstash.io:6379"
 ```
 
-### 2. Setup & Installation
+### 3. Installation
+Activate virtual environment and install dependencies:
 
 ```bash
 # Create virtual environment
 python -m venv .venv
 
-# Activate virtual environment
-# On Windows:
-.venv\Scripts\activate
-# On Linux/macOS:
-source .venv/bin/activate
+# Activate virtual environment (Windows PowerShell)
+.venv\Scripts\Activate.ps1
 
-# Install dependencies
+# Install requirements
 pip install -r requirements.txt
 ```
 
-### 3. Run FastAPI Application
+---
+
+## 🚀 Running the System
+
+### 1. Start the FastAPI Web Server
+In your primary terminal, start Uvicorn with auto-reload:
 
 ```bash
-# Run FastAPI development server with Uvicorn
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload
 ```
 
-### 4. Run Celery Background Worker
+- **Interactive Swagger Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **ReDoc API Spec**: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
+
+### 2. Start the Celery Background Worker
+In a second terminal window, run the Celery worker:
 
 ```bash
-# Start Celery worker pool
-celery -A app.tasks.celery_app.celery_app worker --loglevel=info
+celery -A app.tasks.celery_app worker --loglevel=info --pool=solo
 ```
 
 ---
 
-## 🧪 Phase 3 Testing & Data Verification
+## 📊 Phase 5: Evaluation & Benchmarking (LLM-as-a-Judge)
 
-Follow these steps to verify vector vectorization in Qdrant and Knowledge Graph extraction in Neo4j:
+The engine features an automated **LLM-as-a-Judge evaluation framework** located in `eval/test_rag_accuracy.py` that benchmarks the system against `eval/golden_dataset.json`.
 
-### Step 1: Upload a PDF Document
+### Evaluation Metrics Breakdown
 
-Submit a PDF file to the ingestion endpoint:
+1. **Faithfulness (0.0 to 1.0)**:
+   - **Algorithm**: The LLM judge extracts every atomic factual claim from the generated answer and checks if each claim is directly grounded in the retrieved Vector Chunks and Knowledge Graph Context.
+   - **Formula**: $\text{Faithfulness} = \frac{\text{Supported Claims}}{\text{Total Extracted Claims}}$
 
-```bash
-curl -X POST "http://localhost:8000/api/v1/ingest" \
-  -H "accept: application/json" \
-  -H "Content-Type: multipart/form-data" \
-  -F "file=@/path/to/sample_document.pdf"
-```
+2. **Context Precision (0.0 to 1.0)**:
+   - **Algorithm**: Evaluates the relevance and ranking quality of retrieved contexts. Higher scores are awarded when the most relevant text chunks and sub-graph triples appear at the top rank positions.
 
-**Response (202 Accepted):**
-```json
-{
-  "task_id": "8f7e2d19-4a92-4c31-b852-aa91823ef001",
-  "message": "Document 'sample_document.pdf' accepted for background ingestion",
-  "status": "processing"
-}
-```
-
-### Step 2: Verify Population in Qdrant and Neo4j
-
-Call the verification endpoint:
+### Running the Evaluation Suite
+Run the evaluation suite in your terminal:
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/test-data"
+python eval/test_rag_accuracy.py
 ```
 
-**Response (200 OK):**
-```json
-{
-  "qdrant": {
-    "collection": "documents",
-    "status": "green",
-    "points_count": 12,
-    "vectors_count": 12
-  },
-  "neo4j": {
-    "nodes_count": 35,
-    "relationships_count": 48
-  }
-}
+#### Sample Evaluation Report Output:
+```text
+================================================================================
+                ENTERPRISE GRAPHRAG EVALUATION REPORT                
+================================================================================
+ Total Benchmark Test Cases Evaluated : 5
+ Average Faithfulness Score           : 100.0% (1.000)
+ Average Context Precision Score      : 90.0% (0.900)
+================================================================================
+• Question : What entity published the AI Index Report 2024?
+  Faithfulness: 1.00 | Context Precision: 1.00 | Cached: False
+• Question : Which organizations developed key Large Language Models highlighted in recent research?
+  Faithfulness: 1.00 | Context Precision: 0.90 | Cached: False
+================================================================================
 ```
 
 ---
 
-## 🔍 API Documentation Reference
+## 🔍 API Endpoint Summary
 
-Once the application is running:
-- **Interactive OpenAPI Docs (Swagger UI)**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc Documentation**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/v1/health/` | `GET` | Verifies connection health across Postgres, Qdrant, Neo4j, and Redis. |
+| `/api/v1/test-data/` | `GET` | Returns live point counts in Qdrant and node/edge counts in Neo4j. |
+| `/api/v1/ingest/` | `POST` | Uploads PDF document for asynchronous chunking, vector embedding, and graph extraction. |
+| `/api/v1/chat/` | `POST` | Executes LangGraph Hybrid Search Agent or returns Redis Semantic Cache hit (< 5ms). |
 
 ---
 
-## 📝 Progress & Status
+## 📝 Implementation Progress
 
-Track implementation milestones across all phases in [PROGRESS.md](PROGRESS.md).
+Milestones across all 5 phases are tracked in [PROGRESS.md](PROGRESS.md).

@@ -31,5 +31,14 @@ celery_app.conf.update(
     enable_utc=True,
     broker_use_ssl=broker_use_ssl,
     redis_backend_use_ssl=redis_backend_use_ssl,
+    broker_transport_options={"protocol": 2},
+    redis_backend_transport_options={"protocol": 2},
     imports=("app.tasks.document_worker",),
 )
+
+# Aliases for flexible CLI invocation (e.g. `celery -A app.tasks.celery_app worker`)
+app = celery_app
+celery = celery_app
+
+# Explicitly register tasks
+import app.tasks.document_worker  # noqa: F401, E402
