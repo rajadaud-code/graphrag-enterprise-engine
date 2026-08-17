@@ -16,6 +16,22 @@ app = FastAPI(
     redoc_url="/redoc",
 )
 
+# # Add CORS middleware for Frontend integration (React/Next.js)
+# app.add_middleware(
+#     CORSMiddleware,
+#     allow_origins=[
+#         "http://localhost:3000",
+#         "http://127.0.0.1:3000",
+#         "http://localhost:3001",
+#         "http://127.0.0.1:3001",
+#     ],
+#     allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?",
+#     allow_credentials=True,
+#     allow_methods=["*"],
+#     allow_headers=["*"],
+# )
+
+
 # Add CORS middleware for Frontend integration (React/Next.js)
 app.add_middleware(
     CORSMiddleware,
@@ -24,8 +40,10 @@ app.add_middleware(
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "https://graph-rag-enterprise-engine-fronten.vercel.app", # Your exact Vercel URL (No trailing slash)
     ],
-    allow_origin_regex=r"http://(localhost|127\.0\.0\.1)(:[0-9]+)?",
+    # This regex ensures that if Vercel generates dynamic preview branches, they are also allowed
+    allow_origin_regex=r"https://.*\.vercel\.app|http://(localhost|127\.0\.0\.1)(:[0-9]+)?",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
