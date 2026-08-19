@@ -36,14 +36,17 @@ Text Chunk to Process:
 """
 
 
+import re
+
+
 @retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(min=2, max=30),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=1, max=10),
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
 def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
-    """Call Groq LLM using configured model (llama-3.1-8b-instant) with strict JSON mode and tenacity retry backoff."""
+    """Call Groq LLM using configured model with strict JSON extraction and tenacity retry backoff."""
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is not configured in settings")
 
@@ -52,25 +55,42 @@ def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
 
     model_name = settings.groq_model
     logger.info(f"Calling Groq LLM ({model_name}) for JSON entity extraction...")
+    
     response = client.chat.completions.create(
         model=model_name,
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"},
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert Knowledge Graph Extractor. Output strictly valid JSON matching the requested schema. Do not output conversational text or markdown codeblocks.",
+            },
+            {"role": "user", "content": prompt},
+        ],
         temperature=0.1,
+        max_tokens=1500,
     )
 
     content = (response.choices[0].message.content or "{}").strip()
+    
+    # Strip <think> tags if reasoning model is used
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    
+    # Strip markdown codeblocks
     if content.startswith("```json"):
         content = content.replace("```json", "", 1).rstrip("```").strip()
     elif content.startswith("```"):
         content = content.replace("```", "", 1).rstrip("```").strip()
+
+    # Extract JSON substring if surrounded by extra text
+    json_match = re.search(r"(\{.*\})", content, re.DOTALL)
+    if json_match:
+        content = json_match.group(1)
 
     try:
         extracted = json.loads(content)
         if isinstance(extracted, str):
             extracted = json.loads(extracted)
     except Exception as exc:
-        logger.error(f"Failed to parse LLM JSON content: {exc}")
+        logger.error(f"Failed to parse LLM JSON content: {exc}. Content was: {content[:200]}")
         extracted = {}
 
     if not isinstance(extracted, dict):

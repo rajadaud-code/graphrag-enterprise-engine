@@ -9,7 +9,7 @@ class Settings(BaseSettings):
 
     # LLM Configuration
     groq_api_key: str = ""
-    groq_model: str = "llama-3.1-8b-instant"  # High-speed (500k TPD, 14.4k RPM) model
+    groq_model: str = "openai/gpt-oss-120b"
 
     # Database URLs & Credentials
     postgres_url: str

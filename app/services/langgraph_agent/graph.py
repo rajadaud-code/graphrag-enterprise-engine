@@ -14,25 +14,39 @@ from app.services.langgraph_agent.tools import graph_search_tool, vector_search_
 logger = logging.getLogger(__name__)
 
 
+import re
+
+
 @retry(
-    stop=stop_after_attempt(4),
-    wait=wait_exponential(min=1, max=8),
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(min=1, max=6),
     retry=retry_if_exception_type(Exception),
     reraise=True,
 )
 def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
-    """Helper to invoke Groq API synchronously with high-speed llama-3.1-8b-instant model."""
+    """Helper to invoke Groq API synchronously with configured Groq model."""
     client = Groq(api_key=settings.groq_api_key)
+    
+    messages = [
+        {
+            "role": "system",
+            "content": "You are an Enterprise GraphRAG Assistant. Synthesize grounded, accurate answers with citations based on the provided context.",
+        },
+        {"role": "user", "content": prompt},
+    ]
+    
     kwargs: Dict[str, Any] = {
         "model": settings.groq_model,
-        "messages": [{"role": "user", "content": prompt}],
+        "messages": messages,
         "temperature": 0.1,
+        "max_tokens": 1500,
     }
-    if json_mode:
-        kwargs["response_format"] = {"type": "json_object"}
 
     res = client.chat.completions.create(**kwargs)
-    return res.choices[0].message.content or ""
+    content = res.choices[0].message.content or ""
+    # Strip reasoning tags if present
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    return content
 
 
 def build_graph(qdrant_client: AsyncQdrantClient, neo4j_driver: AsyncDriver):

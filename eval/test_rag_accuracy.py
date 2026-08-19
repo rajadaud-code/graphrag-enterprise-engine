@@ -65,23 +65,42 @@ Retrieved Context Chunks:
 """
 
 
+import re
+
+
 def call_llm_judge(prompt: str) -> Dict[str, Any]:
-    """Call Groq API (llama-3.3-70b-versatile) with strict JSON mode for evaluation metrics."""
+    """Call Groq API with strict JSON mode for evaluation metrics."""
     if not settings.groq_api_key:
         raise ValueError("GROQ_API_KEY is missing in configuration.")
 
     client = Groq(api_key=settings.groq_api_key)
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[{"role": "user", "content": prompt}],
-        response_format={"type": "json_object"},
+        model=settings.groq_model,
+        messages=[
+            {
+                "role": "system",
+                "content": "You are an expert RAG Evaluation Judge. Output strictly valid JSON matching the requested schema. Do not output conversational text or markdown codeblocks.",
+            },
+            {"role": "user", "content": prompt},
+        ],
         temperature=0.0,
+        max_tokens=1000,
     )
     content = (response.choices[0].message.content or "{}").strip()
+    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+    if content.startswith("```json"):
+        content = content.replace("```json", "", 1).rstrip("```").strip()
+    elif content.startswith("```"):
+        content = content.replace("```", "", 1).rstrip("```").strip()
+        
+    json_match = re.search(r"(\{.*\})", content, re.DOTALL)
+    if json_match:
+        content = json_match.group(1)
+        
     try:
         return json.loads(content)
     except Exception as exc:
-        logger.error(f"Failed to parse LLM judge response: {exc}")
+        logger.error(f"Failed to parse LLM judge response: {exc}. Content was: {content[:200]}")
         return {}
 
 
