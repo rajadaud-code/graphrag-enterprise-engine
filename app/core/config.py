@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     neo4j_password: str
     redis_url: str
 
+    # SaaS Multi-Tenancy & Security
+    master_admin_key: str = "grag_master_admin_secret_key_2026"
+    default_dev_api_key: str = "grag_dev_tenant_default_key_2026"
+    default_tenant_id: str = "default_tenant"
+
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env", "../../.env"),
         env_file_encoding="utf-8",

@@ -41,12 +41,13 @@ async def upsert_chunks_to_qdrant(
     qdrant_client: AsyncQdrantClient,
     chunks: List[str],
     filename: str,
+    tenant_id: str = "default_tenant",
     collection_name: str = "documents",
     batch_size: int = 100,
 ) -> int:
-    """Batch embed text chunks and upsert them with payload metadata into Qdrant."""
+    """Batch embed text chunks and upsert them with multi-tenant payload metadata into Qdrant."""
     if not chunks:
-        logger.warning(f"No chunks provided to upsert for file '{filename}'")
+        logger.warning(f"No chunks provided to upsert for file '{filename}' (Tenant: {tenant_id})")
         return 0
 
     # Ensure collection exists
@@ -61,6 +62,17 @@ async def upsert_chunks_to_qdrant(
             ),
         )
 
+    # Ensure tenant_id payload index exists for high-speed isolated filtering
+    try:
+        await qdrant_client.create_payload_index(
+            collection_name=collection_name,
+            field_name="tenant_id",
+            field_schema=models.PayloadSchemaType.KEYWORD,
+        )
+    except Exception:
+        # Index already exists or cannot be recreated
+        pass
+
     # Generate embeddings
     embeddings = generate_embeddings(chunks)
 
@@ -69,6 +81,7 @@ async def upsert_chunks_to_qdrant(
         chunk_id = str(uuid.uuid4())
         payload: Dict[str, Any] = {
             "chunk_id": chunk_id,
+            "tenant_id": tenant_id,
             "text": chunk,
             "filename": filename,
             "chunk_index": idx,
@@ -81,7 +94,10 @@ async def upsert_chunks_to_qdrant(
             )
         )
 
-    logger.info(f"Upserting {len(points)} points into Qdrant collection '{collection_name}' in batches of {batch_size}")
+    logger.info(
+        f"Upserting {len(points)} points into Qdrant collection '{collection_name}' "
+        f"for Tenant '{tenant_id}' (Batches of {batch_size})"
+    )
     for i in range(0, len(points), batch_size):
         batch = points[i : i + batch_size]
         await qdrant_client.upsert(

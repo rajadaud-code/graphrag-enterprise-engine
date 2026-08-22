@@ -1,7 +1,9 @@
 import json
 import logging
-from typing import Any, Dict, List, Literal
+import re
+from typing import Any, Dict, List, Literal, Optional
 from groq import Groq
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from neo4j import AsyncDriver
 from qdrant_client import AsyncQdrantClient
@@ -14,9 +16,6 @@ from app.services.langgraph_agent.tools import graph_search_tool, vector_search_
 logger = logging.getLogger(__name__)
 
 
-import re
-
-
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(min=1, max=6),
@@ -26,7 +25,7 @@ import re
 def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
     """Helper to invoke Groq API synchronously with configured Groq model."""
     client = Groq(api_key=settings.groq_api_key)
-    
+
     messages = [
         {
             "role": "system",
@@ -34,7 +33,7 @@ def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
         },
         {"role": "user", "content": prompt},
     ]
-    
+
     kwargs: Dict[str, Any] = {
         "model": settings.groq_model,
         "messages": messages,
@@ -49,13 +48,18 @@ def call_groq_llm(prompt: str, json_mode: bool = False) -> str:
     return content
 
 
-def build_graph(qdrant_client: AsyncQdrantClient, neo4j_driver: AsyncDriver):
-    """Factory creating a fast, optimized compiled LangGraph workflow with injected DB connections."""
+def build_graph(
+    qdrant_client: AsyncQdrantClient,
+    neo4j_driver: AsyncDriver,
+    checkpointer: Optional[BaseCheckpointSaver] = None,
+):
+    """Factory creating a fast, optimized multi-tenant compiled LangGraph workflow with session memory."""
 
     # 1. Router Node (Fast Heuristic Routing to save LLM latency)
     async def router_node(state: GraphRAGState) -> Dict[str, Any]:
         question = state["question"].lower()
-        logger.info(f"[LangGraph] Router Node classifying query: '{state['question']}'")
+        tenant_id = state.get("tenant_id", settings.default_tenant_id)
+        logger.info(f"[LangGraph] [Tenant: {tenant_id}] Router Node classifying query: '{state['question']}'")
 
         # Fast heuristic classification
         if any(kw in question for kw in ["relationship", "connect", "between", "link", "who"]):
@@ -65,31 +69,48 @@ def build_graph(qdrant_client: AsyncQdrantClient, neo4j_driver: AsyncDriver):
         else:
             route = "hybrid"  # Default to hybrid for rich context
 
-        logger.info(f"[LangGraph] Fast Router decision: '{route}'")
+        logger.info(f"[LangGraph] [Tenant: {tenant_id}] Fast Router decision: '{route}'")
         return {"route_decision": route}
 
-    # 2. Vector Node
+    # 2. Vector Node (Strict Tenant Isolation)
     async def vector_node(state: GraphRAGState) -> Dict[str, Any]:
         question = state["question"]
-        logger.info(f"[LangGraph] Vector Node searching Qdrant for: '{question}'")
-        results = await vector_search_tool(question, qdrant_client, limit=3)
+        tenant_id = state.get("tenant_id", settings.default_tenant_id)
+        logger.info(f"[LangGraph] [Tenant: {tenant_id}] Vector Node searching Qdrant for: '{question}'")
+        results = await vector_search_tool(
+            question=question,
+            qdrant_client=qdrant_client,
+            tenant_id=tenant_id,
+            limit=3,
+        )
         return {"vector_context": results}
 
-    # 3. Graph Node
+    # 3. Graph Node (Strict Tenant Isolation)
     async def graph_node(state: GraphRAGState) -> Dict[str, Any]:
         question = state["question"]
-        logger.info(f"[LangGraph] Graph Node searching Neo4j for: '{question}'")
-        results = await graph_search_tool(question, neo4j_driver, limit=15)
+        tenant_id = state.get("tenant_id", settings.default_tenant_id)
+        logger.info(f"[LangGraph] [Tenant: {tenant_id}] Graph Node searching Neo4j for: '{question}'")
+        results = await graph_search_tool(
+            question=question,
+            neo4j_driver=neo4j_driver,
+            tenant_id=tenant_id,
+            limit=15,
+        )
         return {"graph_context": results}
 
-    # 4. Generator Node
+    # 4. Generator Node (Context + History Aware)
     async def generator_node(state: GraphRAGState) -> Dict[str, Any]:
         question = state["question"]
+        tenant_id = state.get("tenant_id", settings.default_tenant_id)
         v_ctx = state.get("vector_context", [])
         g_ctx = state.get("graph_context", [])
         retry_count = state.get("retry_count", 0)
+        history = state.get("chat_history", [])
 
-        logger.info(f"[LangGraph] Generator Node synthesizing answer with {settings.groq_model} (attempt #{retry_count + 1})...")
+        logger.info(
+            f"[LangGraph] [Tenant: {tenant_id}] Generator Node synthesizing answer with {settings.groq_model} "
+            f"(attempt #{retry_count + 1}, history turns: {len(history)})..."
+        )
 
         v_formatted = "\n".join(
             [f"- [{item.get('filename', 'doc')}]: {item.get('text', '')}" for item in v_ctx]
@@ -102,15 +123,26 @@ def build_graph(qdrant_client: AsyncQdrantClient, neo4j_driver: AsyncDriver):
             ]
         ) or "None"
 
+        # Format recent multi-turn conversation history (last 6 turns)
+        history_formatted = ""
+        if history:
+            recent_turns = history[-6:]
+            formatted_turns = []
+            for h in recent_turns:
+                role = "User" if h.get("role") == "user" else "Assistant"
+                formatted_turns.append(f"{role}: {h.get('content', '')}")
+            history_formatted = "\nRecent Conversation History:\n" + "\n".join(formatted_turns) + "\n"
+
         prompt = f"""You are an Enterprise GraphRAG Synthesis Assistant.
 Answer the user question concisely and accurately using the provided Vector Chunks and Knowledge Graph Context.
-
+{history_formatted}
 Rules:
 1. Ground your answer strictly in the contexts below.
 2. Include clear inline citations (e.g. [Doc: filename.pdf] for vector facts, or [Graph: EntityA -> EntityB] for graph relationships).
 3. If context is limited, answer as best as possible based on the available evidence.
+4. Maintain continuity with previous conversation history when relevant.
 
-Question:
+Current Question:
 {question}
 
 Vector Chunks Context:
@@ -127,7 +159,16 @@ Detailed Answer with Citations:"""
             logger.error(f"Generator node error: {exc}")
             answer = "Unable to generate answer due to a temporary service error. Please try again."
 
-        return {"generation": answer}
+        # Add current user query and generated response to session history
+        new_history_entry = [
+            {"role": "user", "content": question},
+            {"role": "assistant", "content": answer},
+        ]
+
+        return {
+            "generation": answer,
+            "chat_history": new_history_entry,
+        }
 
     # 5. Evaluator Node (Streamlined Self-RAG Critic)
     async def evaluator_node(state: GraphRAGState) -> Dict[str, Any]:
@@ -191,4 +232,4 @@ Detailed Answer with Citations:"""
         },
     )
 
-    return workflow.compile()
+    return workflow.compile(checkpointer=checkpointer)

@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Any, Dict, List
 from groq import Groq
 from neo4j import AsyncDriver
@@ -36,9 +37,6 @@ Text Chunk to Process:
 """
 
 
-import re
-
-
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(min=1, max=10),
@@ -55,7 +53,7 @@ def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
 
     model_name = settings.groq_model
     logger.info(f"Calling Groq LLM ({model_name}) for JSON entity extraction...")
-    
+
     response = client.chat.completions.create(
         model=model_name,
         messages=[
@@ -70,10 +68,10 @@ def extract_entities_with_groq(chunk_text: str) -> Dict[str, Any]:
     )
 
     content = (response.choices[0].message.content or "{}").strip()
-    
+
     # Strip <think> tags if reasoning model is used
     content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-    
+
     # Strip markdown codeblocks
     if content.startswith("```json"):
         content = content.replace("```json", "", 1).rstrip("```").strip()
@@ -116,8 +114,9 @@ async def ingest_graph_to_neo4j(
     filename: str,
     chunk_text: str,
     graph_data: Dict[str, Any],
+    tenant_id: str = "default_tenant",
 ) -> Dict[str, int]:
-    """Ingest extracted entities, chunk node, and relationships into Neo4j using Cypher MERGE."""
+    """Ingest extracted entities, chunk node, and relationships into Neo4j with strict tenant_id isolation."""
     entities: List[Dict[str, Any]] = graph_data.get("entities", [])
     relationships: List[Dict[str, Any]] = graph_data.get("relationships", [])
 
@@ -127,24 +126,28 @@ async def ingest_graph_to_neo4j(
         relationships = []
 
     cypher_chunk_and_entities = """
-    MERGE (c:Chunk {id: $chunk_id})
-    ON CREATE SET c.filename = $filename, c.text = $chunk_text
+    MERGE (c:Chunk {id: $chunk_id, tenant_id: $tenant_id})
+    ON CREATE SET c.filename = $filename, c.text = $chunk_text, c.tenant_id = $tenant_id
 
     WITH c
     UNWIND $entities AS entity
-    MERGE (e:Entity {name: entity.name})
-    ON CREATE SET e.type = entity.type, e.description = entity.description
+    MERGE (e:Entity {name: entity.name, tenant_id: $tenant_id})
+    ON CREATE SET e.type = entity.type, e.description = entity.description, e.tenant_id = $tenant_id
 
-    MERGE (c)-[:HAS_ENTITY]->(e)
-    MERGE (e)-[:MENTIONED_IN]->(c)
+    MERGE (c)-[hc:HAS_ENTITY {tenant_id: $tenant_id}]->(e)
+    ON CREATE SET hc.tenant_id = $tenant_id
+    MERGE (e)-[mi:MENTIONED_IN {tenant_id: $tenant_id}]->(c)
+    ON CREATE SET mi.tenant_id = $tenant_id
     """
 
     cypher_relationships = """
     UNWIND $relationships AS rel
-    MERGE (src:Entity {name: rel.source})
-    MERGE (tgt:Entity {name: rel.target})
-    MERGE (src)-[r:RELATES_TO {type: coalesce(rel.type, 'RELATED')}]->(tgt)
-    ON CREATE SET r.description = rel.description
+    MERGE (src:Entity {name: rel.source, tenant_id: $tenant_id})
+    ON CREATE SET src.tenant_id = $tenant_id
+    MERGE (tgt:Entity {name: rel.target, tenant_id: $tenant_id})
+    ON CREATE SET tgt.tenant_id = $tenant_id
+    MERGE (src)-[r:RELATES_TO {type: coalesce(rel.type, 'RELATED'), tenant_id: $tenant_id}]->(tgt)
+    ON CREATE SET r.description = rel.description, r.tenant_id = $tenant_id
     """
 
     async with neo4j_driver.session() as session:
@@ -156,6 +159,7 @@ async def ingest_graph_to_neo4j(
                 filename=filename,
                 chunk_text=chunk_text,
                 entities=entities,
+                tenant_id=tenant_id,
             )
 
         # Ingest Entity-to-Entity Relationships
@@ -163,10 +167,12 @@ async def ingest_graph_to_neo4j(
             await session.run(
                 cypher_relationships,
                 relationships=relationships,
+                tenant_id=tenant_id,
             )
 
     logger.info(
-        f"Ingested Graph for Chunk {chunk_id}: {len(entities)} entities, {len(relationships)} relationships into Neo4j"
+        f"Ingested Graph for Chunk '{chunk_id}' (Tenant: '{tenant_id}'): "
+        f"{len(entities)} entities, {len(relationships)} relationships into Neo4j"
     )
     return {
         "entities_count": len(entities),

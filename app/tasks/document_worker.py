@@ -19,19 +19,28 @@ logger = logging.getLogger(__name__)
 MAX_GRAPH_CHUNKS_PER_DOC = 30  # Cap graph extraction to 30 chunks per document to respect LLM rate limits
 
 
-async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str, Any]:
+async def run_async_document_pipeline(
+    file_path: str,
+    filename: str,
+    tenant_id: str = "default_tenant",
+) -> Dict[str, Any]:
     """Execute complete ingestion pipeline: extraction, chunking, Qdrant vectorization, and Neo4j graph extraction."""
-    logger.info(f"Extracting text from PDF file '{filename}' ({file_path})...")
+    logger.info(f"Extracting text from PDF file '{filename}' ({file_path}) for Tenant: '{tenant_id}'...")
     text = extract_text_from_pdf(file_path)
     chunks = split_text_into_chunks(text, chunk_size=1000, chunk_overlap=200)
 
     if not chunks:
-        logger.warning(f"No text extracted from document '{filename}'")
-        return {"filename": filename, "status": "empty", "chunks_count": 0}
+        logger.warning(f"No text extracted from document '{filename}' for Tenant: '{tenant_id}'")
+        return {
+            "filename": filename,
+            "tenant_id": tenant_id,
+            "status": "empty",
+            "chunks_count": 0,
+        }
 
-    logger.info(f"Document '{filename}' split into {len(chunks)} total text chunks.")
+    logger.info(f"Document '{filename}' split into {len(chunks)} total text chunks for Tenant: '{tenant_id}'.")
 
-    # Step A: Embed and Upsert Chunks into Qdrant (Batched)
+    # Step A: Embed and Upsert Chunks into Qdrant (Batched with tenant_id payload)
     qdrant_client = AsyncQdrantClient(
         url=settings.qdrant_url,
         api_key=settings.qdrant_api_key,
@@ -41,13 +50,14 @@ async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str
             qdrant_client=qdrant_client,
             chunks=chunks,
             filename=filename,
+            tenant_id=tenant_id,
             batch_size=100,
         )
-        logger.info(f"Successfully stored {points_inserted} vector points in Qdrant for '{filename}'")
+        logger.info(f"Successfully stored {points_inserted} vector points in Qdrant for '{filename}' (Tenant: {tenant_id})")
     finally:
         await qdrant_client.close()
 
-    # Step B: LLM Entity Extraction and Neo4j Knowledge Graph Ingestion
+    # Step B: LLM Entity Extraction and Neo4j Knowledge Graph Ingestion with tenant_id
     neo4j_uri = get_sanitized_neo4j_uri(settings.neo4j_uri)
     neo4j_driver = AsyncGraphDatabase.driver(
         neo4j_uri,
@@ -66,7 +76,7 @@ async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str
 
     try:
         for idx, chunk in enumerate(graph_target_chunks):
-            chunk_id = f"{filename}_chunk_{idx}_{uuid.uuid4().hex[:6]}"
+            chunk_id = f"{tenant_id}_{filename}_chunk_{idx}_{uuid.uuid4().hex[:6]}"
             try:
                 graph_data = extract_entities_with_groq(chunk)
                 res = await ingest_graph_to_neo4j(
@@ -75,6 +85,7 @@ async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str
                     filename=filename,
                     chunk_text=chunk,
                     graph_data=graph_data,
+                    tenant_id=tenant_id,
                 )
                 total_entities += res["entities_count"]
                 total_relationships += res["relationships_count"]
@@ -84,12 +95,13 @@ async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str
         await neo4j_driver.close()
 
     logger.info(
-        f"Pipeline complete for '{filename}': {points_inserted} vectors in Qdrant, "
+        f"Pipeline complete for '{filename}' (Tenant: {tenant_id}): {points_inserted} vectors in Qdrant, "
         f"{total_entities} entities and {total_relationships} relationships in Neo4j."
     )
 
     return {
         "filename": filename,
+        "tenant_id": tenant_id,
         "status": "success",
         "chunks_count": len(chunks),
         "qdrant_vectors_inserted": points_inserted,
@@ -99,15 +111,15 @@ async def run_async_document_pipeline(file_path: str, filename: str) -> Dict[str
 
 
 @celery_app.task(name="process_document")
-def process_document_task(file_path: str, filename: str) -> Dict[str, Any]:
-    """Celery worker task handling full document pipeline and disk cleanup."""
-    logger.info(f"Starting background processing task for: {filename} ({file_path})")
+def process_document_task(file_path: str, filename: str, tenant_id: str = "default_tenant") -> Dict[str, Any]:
+    """Celery worker task handling full multi-tenant document pipeline and disk cleanup."""
+    logger.info(f"Starting background processing task for: {filename} (Tenant: {tenant_id}, Path: {file_path})")
 
     try:
-        result = asyncio.run(run_async_document_pipeline(file_path, filename))
+        result = asyncio.run(run_async_document_pipeline(file_path, filename, tenant_id=tenant_id))
         return result
     except Exception as exc:
-        logger.error(f"Critical error in document processing task for '{filename}': {exc}", exc_info=True)
+        logger.error(f"Critical error in document processing task for '{filename}' (Tenant: {tenant_id}): {exc}", exc_info=True)
         raise exc
     finally:
         if os.path.exists(file_path):
